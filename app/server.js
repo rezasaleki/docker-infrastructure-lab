@@ -40,6 +40,7 @@ async function bootstrap() {
             time: result.rows[0].time,
           }),
         );
+        return;
       }
 
       if (url === "/cache") {
@@ -58,7 +59,7 @@ async function bootstrap() {
 
       res.end(
         JSON.stringify({
-          application: "Docker Infrastructure Lab",
+          application: "Docker Infrastructure Lab Development !",
           hostname: require("os").hostname(),
           status: "running",
         }),
