@@ -6,7 +6,7 @@ const PORT = process.env?.PORT || 3000;
 
 const db = new Pool({
   host: process.env.DB_HOST || "postgres",
-  port: 5432,
+  port: process.env?.DB_PORT || 5432,
   database: process.env.DB_NAME || "db_test",
   user: process.env.DB_USER || "db_user",
   password: process.env.DB_PASSWORD,
