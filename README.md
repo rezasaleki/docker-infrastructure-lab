@@ -1,337 +1,442 @@
 # Docker Infrastructure Lab
 
-A hands-on Docker learning project built to understand container infrastructure from an infrastructure-engineering perspective.
+A hands-on Docker infrastructure project designed to explore containerization, networking, reverse proxying, load balancing, persistent storage, database backup and restore, and multi-container application deployment.
 
-The lab is intentionally configured with **individual `docker` commands first**. Docker Compose will be introduced later, after the services, networking, storage, and operational behavior have been understood and tested independently.
+The project is built incrementally using Docker CLI commands before moving to Docker Compose. The goal is to understand how each infrastructure component works independently and how the components communicate with each other.
+
+---
 
 ## Table of Contents
 
-- [Project Goals](#project-goals)
-- [Current Architecture](#current-architecture)
+- [Project Overview](#project-overview)
+- [Architecture](#architecture)
+- [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
 - [Docker Network](#docker-network)
 - [Services](#services)
-  - [Redis](#redis)
-  - [PostgreSQL](#postgresql)
-  - [Node.js API](#nodejs-api)
-  - [Nginx](#nginx)
+- [Request Routing](#request-routing)
+- [Getting Started](#getting-started)
+- [Nginx Configuration](#nginx-configuration)
+- [Persistent Storage](#persistent-storage)
+- [Database Backup and Restore](#database-backup-and-restore)
 - [Useful Docker Commands](#useful-docker-commands)
-- [Verification and Testing](#verification-and-testing)
-- [Troubleshooting Notes](#troubleshooting-notes)
-- [Next Learning Steps](#next-learning-steps)
+- [Troubleshooting](#troubleshooting)
+- [Current Project Status](#current-project-status)
+- [Roadmap](#roadmap)
 
 ---
 
-## Project Goals
+## Project Overview
 
-This lab is designed to practice:
+Docker Infrastructure Lab demonstrates a containerized application architecture consisting of:
 
-- Docker images and containers
-- Container lifecycle and runtime inspection
-- User-defined bridge networks and Docker DNS
-- Communication between containers
-- Persistent storage with Docker volumes
-- Nginx as a reverse proxy
-- Container logs, health checks, and operational troubleshooting
-- Resource limits and container security
-- Rebuilding the same architecture with Docker Compose at a later stage
+- A React frontend.
+- A Node.js REST API running multiple instances.
+- Nginx as a reverse proxy and load balancer.
+- PostgreSQL as the relational database.
+- Redis as the in-memory data store.
+- Docker bridge networking for internal service communication.
+- Docker named volumes for persistent data.
+- PostgreSQL logical backup and restore procedures.
 
-## Current Architecture
+The project initially uses individual `docker run` commands to understand container lifecycle, networking, port publishing, volumes, and service communication.
+
+Docker Compose will be introduced in a later phase.
+
+## Architecture
+
+### High-Level Architecture
 
 ```text
-                         Host machine
-                       http://localhost:8080
+                         CLIENT / BROWSER
+                                |
+                                |
+                         localhost:8080
                                 |
                                 v
-                     +--------------------+
-                     |   Nginx Container  |
-                     |      lab-nginx     |
-                     |      Port 80       |
-                     +--------------------+
+                      +-------------------+
+                      |   NGINX GATEWAY   |
+                      |   Reverse Proxy   |
+                      |   Load Balancer   |
+                      +-------------------+
                                 |
-                      Docker bridge network
-                         infra-lab-net
-                                |
-                                v
-                     +--------------------+
-                     |    Node.js API     |
-                     |      lab-api       |
-                     |      Port 3000     |
-                     +--------------------+
-                          |           |
-                          |           |
-                          v           v
-                 +-------------+  +-------------+
-                 | PostgreSQL  |  |    Redis    |
-                 | lab-postgres|  |  lab-redis  |
-                 |   Port 5432 |  |   Port 6379 |
-                 +-------------+  +-------------+
+                 +--------------+--------------+
+                 |                             |
+              /  |                         /api/
+                 |                             |
+                 v                             v
+        +----------------+            +----------------+
+        | Frontend Nginx |            | API Upstream    |
+        | Static Content |            | Load Balancing  |
+        +----------------+            +----------------+
+                                              |
+                             +----------------+----------------+
+                             |                |                |
+                             v                v                v
+                        +---------+      +---------+      +---------+
+                        | API 1   |      | API 2   |      | API 3   |
+                        | :3000   |      | :3000   |      | :3000   |
+                        +---------+      +---------+      +---------+
+                             |                |                |
+                             +----------------+----------------+
+                                              |
+                                   +----------+----------+
+                                   |                     |
+                                   v                     v
+                             +-----------+         +-----------+
+                             | PostgreSQL|         |   Redis   |
+                             |   :5432   |         |   :6379   |
+                             +-----------+         +-----------+
+                                   |                     |
+                                   v                     v
+                             Named Volume          Named Volume
 ```
 
-All application containers communicate over the user-defined Docker network `infra-lab-net`.
+### Network Design
 
-Nginx is exposed to the host on port `8080`. The API may also have a host port mapping from earlier testing; the intended final architecture is to expose the application through Nginx only.
+All application services communicate through a dedicated Docker bridge network.
+
+```text
+Docker Host
+    |
+    +-- lab-infra-network (bridge)
+            |
+            +-- lab-nginx
+            +-- lab-frontend
+            +-- lab-api-1
+            +-- lab-api-2
+            +-- lab-api-3
+            +-- lab-postgres
+            +-- lab-redis
+```
+
+### Single Entry Point
+
+Only the Nginx Gateway should be publicly exposed.
+
+| Service | Internal Port | Host Port |
+|---|---:|---:|
+| Nginx Gateway | 80 | 8080 |
+| Frontend Nginx | 80 | Not published |
+| API instances | 3000 | Not published |
+| PostgreSQL | 5432 | Not published |
+| Redis | 6379 | Not published |
+
+The internal services remain accessible to other containers through Docker networking.
+
+> During the initial manual setup, some API ports and the frontend port were published for direct testing. The target architecture uses the single-entry-point model described above.
+
+## Technology Stack
+
+| Technology | Purpose |
+|---|---|
+| Docker Engine | Container runtime |
+| Docker CLI | Container lifecycle management |
+| Docker Bridge Network | Internal service communication |
+| Node.js | Backend runtime |
+| React | Frontend application |
+| Vite | Frontend build tooling |
+| Nginx | Reverse proxy and load balancer |
+| PostgreSQL 16 | Relational database |
+| Redis | In-memory data store |
+| Docker Volumes | Persistent storage |
 
 ## Project Structure
 
-The relevant project files are organized as follows:
+The current project uses a simple structure:
 
 ```text
 docker-infrastructure-lab/
-├── README.md
-├── app/
-│   ├── Dockerfile
+│
+├── app/                       # Backend application
+│   └── Dockerfile
+│
+├── frontend/                  # React + Vite application
+│   ├── src/
+│   │   ├── App.jsx
+│   │   └── App.css
 │   ├── package.json
-│   ├── package-lock.json
-│   └── server.js
-└── nginx/
-    └── default.conf
+│   └── Dockerfile
+│
+├── nginx/
+│   ├── default.conf           # Gateway configuration
+│   └── default.conf.bak       # Previous configuration backup
+│
+├── backups/                   # Database backup files
+│
+├── README.md
+└── .gitignore
 ```
 
-Other files, such as `.prettierrc.json`, `.prettierignore`, and `.vscode/settings.json`, may be present depending on the local formatting setup.
+Additional infrastructure directories and automation scripts can be introduced as the project grows.
 
 ## Prerequisites
 
-The lab was developed and tested with the following tools:
+Install the following tools:
 
-- Ubuntu Linux
 - Docker Engine
 - Docker CLI
-- Docker Compose plugin (installed, but intentionally not used in the initial manual setup)
-- Node.js and npm for application development
+- Node.js and npm (for local frontend/backend development)
+- Git
+- curl
 
-Check installed versions:
+Verify the installations:
 
 ```bash
 docker --version
 docker compose version
-docker info
 node --version
 npm --version
+git --version
 ```
 
 ## Docker Network
 
-Create the user-defined bridge network:
+Create the application network:
 
 ```bash
-docker network create infra-lab-net
+docker network create \
+  --driver bridge \
+  lab-infra-network
 ```
 
 Inspect the network:
 
 ```bash
-docker network ls
-docker network inspect infra-lab-net
+docker network inspect lab-infra-network
 ```
 
-A user-defined bridge network provides:
-
-- Container-to-container communication
-- Automatic DNS resolution by container name
-- Network isolation from containers outside the network
-
-For example, the API can reach Redis by using `lab-redis` as its hostname, and Nginx can reach the API using `lab-api`.
-
-Connect an existing container to the network when necessary:
+List Docker networks:
 
 ```bash
-docker network connect infra-lab-net <container-name>
+docker network ls
 ```
+
+Containers attached to this network can resolve each other by container name.
+
+For example:
+
+```text
+lab-api-1:3000
+lab-postgres:5432
+lab-redis:6379
+lab-frontend:80
+```
+
+Container names are used for internal DNS resolution instead of hardcoding container IP addresses.
 
 ## Services
 
-> The commands below reflect the manual, standalone Docker workflow. Check existing containers before creating new ones to avoid name conflicts.
+### 1. Frontend
 
-### Redis
+The frontend is a React application built with Vite.
 
-Pull the image:
+The production build is served by Nginx.
+
+Dockerfile:
+
+```dockerfile
+# Build stage
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm ci
+
+COPY . .
+
+RUN npm run build
+
+# Production stage
+FROM nginx:alpine
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+Build the frontend image:
 
 ```bash
-docker pull redis:alpine
+docker build \
+  -t infrastructure-frontend:v1 \
+  ./frontend
 ```
 
-Run Redis:
-
-```bash
-docker run -d \
-  --name lab-redis \
-  --network infra-lab-net \
-  --restart unless-stopped \
-  redis:alpine
-```
-
-Check the container and logs:
-
-```bash
-docker ps
-docker logs lab-redis
-```
-
-Check Redis from inside the container:
-
-```bash
-docker exec lab-redis redis-cli ping
-```
-
-Expected response:
-
-```text
-PONG
-```
-
-The API connects to Redis through the Docker network, using the container name as the hostname:
-
-```text
-redis://lab-redis:6379
-```
-
-### PostgreSQL
-
-Pull the image:
-
-```bash
-docker pull postgres:16-alpine
-```
-
-Create a named volume for persistent database files:
-
-```bash
-docker volume create lab-postgres-data
-```
-
-Run PostgreSQL:
+Run the frontend internally:
 
 ```bash
 docker run -d \
-  --name lab-postgres \
-  --network infra-lab-net \
-  -e POSTGRES_DB=db_test \
-  -e POSTGRES_USER=db_user \
-  -e POSTGRES_PASSWORD=labpass \
-  -v lab-postgres-data:/var/lib/postgresql/data \
+  --name lab-frontend \
+  --network lab-infra-network \
   --restart unless-stopped \
-  postgres:16-alpine
+  infrastructure-frontend:v1
 ```
 
-**Important:** `labpass` is a lab-only example password. Do not use it in production. Use a secure secret-management approach for real deployments.
+The frontend is accessed through the Gateway:
 
-Check container status and logs:
-
-```bash
-docker ps
-docker logs lab-postgres
+```text
+http://localhost:8080
 ```
 
-Check database readiness:
+### 2. Backend API
 
-```bash
-docker exec lab-postgres pg_isready -U db_user -d db_test
+The backend is a Node.js application running on port `3000` inside each container.
+
+Three API instances are used to demonstrate load balancing.
+
+| Container | Internal Port |
+|---|---:|
+| lab-api-1 | 3000 |
+| lab-api-2 | 3000 |
+| lab-api-3 | 3000 |
+
+The API instances connect to PostgreSQL and Redis through the internal Docker network.
+
+Example environment variables:
+
+```env
+PORT=3000
+
+DB_HOST=lab-postgres
+DB_PORT=5432
+DB_NAME=db_test
+DB_USER=db_user
+DB_PASSWORD=labpass
+
+REDIS_HOST=lab-redis
 ```
 
-Open a PostgreSQL shell:
+These credentials are for local lab use only. Do not use them in production.
 
-```bash
-docker exec -it lab-postgres psql -U db_user -d db_test
-```
+Example API endpoints:
 
-Useful SQL commands:
-
-```sql
-SELECT version();
-SELECT current_database();
-SELECT current_user;
-\l
-\dt
-\q
-```
-
-The database is intended to be accessed by the API over `infra-lab-net`; a host port mapping is not required for this setup.
-
-### Node.js API
-
-The API is located in the `app/` directory and uses:
-
-- Node.js built-in `http` module
-- `pg` for PostgreSQL connectivity
-- `redis` for Redis connectivity
-
-The API provides these endpoints:
-
-| Endpoint | Purpose |
+| Endpoint | Description |
 |---|---|
-| `/health` | Basic application health response |
-| `/db` | Runs a query against PostgreSQL |
-| `/cache` | Writes and reads a test value in Redis |
-| `/` | Returns basic application information |
+| `/` | API information |
+| `/health` | Health check |
+| `/db` | Database connectivity |
+| `/cache` | Redis connectivity |
 
-The application reads its configuration from environment variables. The relevant values used in this lab are:
-
-| Variable | Example value | Purpose |
-|---|---|---|
-| `PORT` | `3000` | API listening port |
-| `DB_HOST` | `lab-postgres` or `postgres` | PostgreSQL hostname; must match the actual container/network alias |
-| `DB_NAME` | `db_test` | Database name |
-| `DB_USER` | `db_user` | Database username |
-| `DB_PASSWORD` | Lab-specific secret | Database password |
-| `REDIS_HOST` | `lab-redis` | Redis hostname |
-
-Make sure `DB_HOST` matches the PostgreSQL container name or its network alias. The API and database must share a Docker network.
-
-Build the API image from the application directory (adjust the image tag to match the version you are building):
+Build the API image (adjust the build context if the backend Dockerfile is in another directory):
 
 ```bash
-docker build -t infrastructure-api:v2 ./app
+docker build \
+  -t api-infrastructure:v1 \
+  ./app
 ```
 
-Run the API on the Docker network:
+### 3. Nginx Gateway
+
+Nginx is the single entry point for external HTTP traffic.
+
+Responsibilities:
+
+- Serve requests through the frontend container.
+- Route API requests to the API upstream.
+- Distribute API traffic across multiple instances.
+- Forward client and request headers.
+- Hide internal service ports from external clients.
+
+### 4. PostgreSQL
+
+PostgreSQL runs using:
+
+```text
+postgres:16-alpine
+```
+
+Database configuration:
+
+| Setting | Value |
+|---|---|
+| Database | db_test |
+| Username | db_user |
+| Internal Port | 5432 |
+| Container | lab-postgres |
+| Volume | lab-postgres-data |
+
+The database data directory is persisted through a named Docker volume.
+
+### 5. Redis
+
+Redis is used as the application's in-memory data store.
+
+Image:
+
+```text
+redis:alpine
+```
+
+Container:
+
+```text
+lab-redis
+```
+
+Redis persistence is enabled using Append Only File (AOF):
 
 ```bash
-docker run -d \
-  --name lab-api \
-  --network infra-lab-net \
-  -e PORT=3000 \
-  -e DB_HOST=lab-postgres \
-  -e DB_NAME=db_test \
-  -e DB_USER=db_user \
-  -e DB_PASSWORD=labpass \
-  -e REDIS_HOST=lab-redis \
-  -p 3000:3000 \
-  --restart unless-stopped \
-  infrastructure-api:v2
+redis-server --appendonly yes
 ```
 
-The `-p 3000:3000` mapping is useful for direct host-side testing. In the intended final reverse-proxy-only setup, recreate the API container without this host port mapping so external requests enter through Nginx.
+Named volume:
 
-Check the API:
-
-```bash
-docker ps
-docker logs lab-api
-docker inspect lab-api
+```text
+lab-redis-data
 ```
 
-### Nginx
+AOF helps Redis recover data after a restart, but it is not a substitute for an independent backup.
 
-Nginx acts as a reverse proxy. It accepts HTTP requests from the host and forwards them to the API over the Docker network.
+## Request Routing
 
-The Nginx configuration is stored at:
+### Nginx Configuration
+
+File:
 
 ```text
 nginx/default.conf
 ```
 
-Example configuration:
+Configuration:
 
 ```nginx
+# API Load Balancer
+upstream api_backend {
+    server lab-api-1:3000;
+    server lab-api-2:3000;
+    server lab-api-3:3000;
+}
+
+# Frontend
+upstream frontend_backend {
+    server lab-frontend:80;
+}
+
 server {
     listen 80;
-
     server_name _;
 
+    # Frontend requests
     location / {
-        proxy_pass http://lab-api:3000;
+        proxy_pass http://frontend_backend;
+
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API requests
+    location /api/ {
+        proxy_pass http://api_backend/;
 
         proxy_http_version 1.1;
 
@@ -343,302 +448,523 @@ server {
 }
 ```
 
-The upstream uses `lab-api`, not a hard-coded container IP. Docker's embedded DNS resolves the container name on the shared user-defined network.
+### Important: URI Rewriting
 
-Pull the image:
+The trailing slash in this directive is intentional:
 
-```bash
-docker pull nginx:alpine
+```nginx
+proxy_pass http://api_backend/;
 ```
 
-Validate the configuration syntax:
+Nginx replaces the matching `/api/` prefix with `/`.
 
-```bash
-docker run --rm \
-  --mount type=bind,source="$(pwd)/nginx/default.conf",target=/etc/nginx/conf.d/default.conf,readonly \
-  nginx:alpine nginx -t
+Examples:
+
+| Browser Request | API Request |
+|---|---|
+| `/api/health` | `/health` |
+| `/api/db` | `/db` |
+| `/api/cache` | `/cache` |
+
+This allows the frontend to use root-relative API URLs:
+
+```javascript
+fetch('/api/health');
 ```
 
-This command checks Nginx configuration syntax. It does not, by itself, guarantee that the API hostname can be resolved: the temporary validation container is not attached to `infra-lab-net`.
+The browser sends the request to the same origin as the frontend.
 
-Run Nginx:
+When the frontend is accessed through:
 
-```bash
-docker run -d \
-  --name lab-nginx \
-  --network infra-lab-net \
-  -p 8080:80 \
-  --mount type=bind,source="$(pwd)/nginx/default.conf",target=/etc/nginx/conf.d/default.conf,readonly \
-  --restart unless-stopped \
-  nginx:alpine
+```text
+http://localhost:8080
 ```
 
-Check Nginx:
+the API request becomes:
+
+```text
+http://localhost:8080/api/health
+```
+
+Nginx then routes the request internally to the API cluster.
+
+This approach avoids requiring a separate frontend API origin and simplifies CORS configuration.
+
+### Validate and Reload Nginx
+
+Check the configuration:
 
 ```bash
-docker ps
-docker logs lab-nginx
 docker exec lab-nginx nginx -t
+```
+
+Reload Nginx:
+
+```bash
+docker exec lab-nginx nginx -s reload
+```
+
+Print the complete active configuration:
+
+```bash
 docker exec lab-nginx nginx -T
-docker exec lab-nginx getent hosts lab-api
 ```
 
-`nginx -t` validates the active configuration. `nginx -T` prints the full configuration loaded by Nginx.
+## Persistent Storage
 
-## Useful Docker Commands
+Docker containers are ephemeral. Removing a container does not necessarily remove the data stored in its named volumes.
 
-### Containers
+This project uses named volumes for PostgreSQL and Redis.
+
+### PostgreSQL Volume
+
+```text
+lab-postgres-data
+```
+
+Mount destination:
+
+```text
+/var/lib/postgresql/data
+```
+
+Inspect the volume:
 
 ```bash
-docker ps
-docker ps -a
-docker run
-docker start <container-name>
-docker stop <container-name>
-docker restart <container-name>
-docker rm <container-name>
-docker rm -f <container-name>
-docker inspect <container-name>
-docker logs <container-name>
-docker logs -f <container-name>
-docker logs --tail 100 <container-name>
-docker exec -it <container-name> sh
-docker top <container-name>
-docker stats
+docker volume inspect lab-postgres-data
 ```
 
-### Images
+### Redis Volume
+
+```text
+lab-redis-data
+```
+
+Mount destination:
+
+```text
+/data
+```
+
+Inspect the volume:
 
 ```bash
-docker images
-docker pull <image>
-docker build -t <image-name>:<tag> <build-context>
-docker image inspect <image>
-docker image history <image>
-docker rmi <image>
+docker volume inspect lab-redis-data
 ```
 
-### Networks
-
-```bash
-docker network ls
-docker network inspect infra-lab-net
-docker network create <network-name>
-docker network connect <network-name> <container-name>
-docker network disconnect <network-name> <container-name>
-docker network rm <network-name>
-```
-
-### Volumes
+### List All Volumes
 
 ```bash
 docker volume ls
-docker volume inspect lab-postgres-data
-docker volume create <volume-name>
-docker volume rm <volume-name>
 ```
 
-Do not remove a volume containing data you need. Removing a database container does not normally remove its separately managed named volume.
+### Important
 
-### Resource and Runtime Inspection
+Removing a container does not automatically remove its named volume.
+
+However, removing a volume permanently deletes its stored data.
+
+Be careful with:
 
 ```bash
-docker stats
-docker inspect <container-name>
-docker top <container-name>
-docker info
-docker events
+docker volume rm lab-postgres-data
 ```
 
-These commands help inspect resource usage, container configuration, running processes, daemon configuration, and Docker events.
+Never run destructive volume commands unless the data is backed up or intentionally disposable.
 
-## Verification and Testing
+## Database Backup and Restore
 
-Run the following checks after all required containers are up.
+Database persistence and database backup solve different problems.
 
-### 1. Check container status
+- Persistence protects data against container recreation.
+- Backup provides a separate recovery copy.
+- Restore verifies that the backup can actually be recovered.
+
+### PostgreSQL Backup
+
+Create a backup directory:
+
+```bash
+mkdir -p backups
+```
+
+Create a custom-format PostgreSQL backup:
+
+```bash
+docker exec lab-postgres \
+  pg_dump -U db_user -d db_test -Fc \
+  > backups/db_test_backup.dump
+```
+
+Inspect the backup:
+
+```bash
+ls -lh backups/
+file backups/db_test_backup.dump
+```
+
+### Create a Restore Database
+
+```bash
+docker exec lab-postgres \
+  createdb -U db_user db_test_restore
+```
+
+### Restore the Backup
+
+```bash
+docker exec -i lab-postgres \
+  pg_restore -U db_user -d db_test_restore \
+  < backups/db_test_backup.dump
+```
+
+### Verify Restored Data
+
+Connect to PostgreSQL:
+
+```bash
+docker exec -it lab-postgres \
+  psql -U db_user -d db_test_restore
+```
+
+List tables:
+
+```sql
+\dt
+```
+
+Query the test table:
+
+```sql
+SELECT * FROM docker_persistence_test;
+```
+
+Exit:
+
+```sql
+\q
+```
+
+### Backup Best Practices
+
+- Keep backup files outside the database container.
+- Do not commit database credentials or sensitive backups to Git.
+- Store production backups outside the Docker host.
+- Periodically test restore procedures.
+- Consider encryption and retention policies for important data.
+
+## Useful Docker Commands
+
+### Container Management
+
+List running containers:
 
 ```bash
 docker ps
 ```
 
-Confirm that the expected containers are running:
-
-- `lab-nginx`
-- `lab-api`
-- `lab-redis`
-- `lab-postgres`
-
-### 2. Check network membership
+List all containers:
 
 ```bash
-docker network inspect infra-lab-net
+docker ps -a
 ```
 
-Confirm that the required containers are listed under the network's `Containers` section.
-
-### 3. Check service readiness
+View container logs:
 
 ```bash
-docker exec lab-redis redis-cli ping
-docker exec lab-postgres pg_isready -U db_user -d db_test
-docker exec lab-nginx nginx -t
+docker logs lab-nginx
+docker logs lab-frontend
+docker logs lab-api-1
 ```
 
-### 4. Test through Nginx
-
-Health endpoint:
+Follow logs:
 
 ```bash
-curl -i http://127.0.0.1:8080/health
+docker logs -f lab-nginx
 ```
 
-Expected response body:
-
-```json
-{"status":"ok"}
-```
-
-Redis endpoint:
+Inspect a container:
 
 ```bash
-curl -i http://127.0.0.1:8080/cache
+docker inspect lab-nginx
 ```
 
-Expected response body:
-
-```json
-{"cache":"connected","value":"Redis is working"}
-```
-
-PostgreSQL endpoint:
+Execute a command inside a container:
 
 ```bash
-curl -i http://127.0.0.1:8080/db
+docker exec -it lab-nginx sh
 ```
 
-The response should indicate that the database is connected and include the query timestamp.
-
-### 5. Test Docker DNS from Nginx
+Stop a container:
 
 ```bash
-docker exec lab-nginx getent hosts lab-api
+docker stop lab-frontend
 ```
 
-The command should return the API container's IP address on `infra-lab-net`.
+Start a container:
 
-## Troubleshooting Notes
+```bash
+docker start lab-frontend
+```
 
-### Nginx returns `404 Not Found`
+Remove a container:
 
-If the response contains:
+```bash
+docker rm -f lab-frontend
+```
+
+### Image Management
+
+List images:
+
+```bash
+docker images
+```
+
+Build an image:
+
+```bash
+docker build -t image-name:version .
+```
+
+Remove an image:
+
+```bash
+docker rmi image-name:version
+```
+
+### Network Management
+
+List networks:
+
+```bash
+docker network ls
+```
+
+Inspect a network:
+
+```bash
+docker network inspect lab-infra-network
+```
+
+Connect a running container:
+
+```bash
+docker network connect lab-infra-network container-name
+```
+
+Disconnect a container:
+
+```bash
+docker network disconnect lab-infra-network container-name
+```
+
+### Volume Management
+
+List volumes:
+
+```bash
+docker volume ls
+```
+
+Inspect a volume:
+
+```bash
+docker volume inspect lab-postgres-data
+```
+
+---
+
+## Troubleshooting
+
+### 1. Port Already Allocated
+
+Example:
 
 ```text
-Server: nginx
-404 Not Found
+Bind for 0.0.0.0:3000 failed:
+port is already allocated
 ```
 
-check whether Nginx loaded the intended reverse-proxy configuration:
+Find the process or container using the port:
 
 ```bash
-docker exec lab-nginx nginx -T
+docker ps --format "table {{.Names}}\t{{.Ports}}"
 ```
 
-If the output contains the default document-root configuration, such as:
+Stop or reconfigure the conflicting service before publishing the port again.
 
-```nginx
-location / {
-    root /usr/share/nginx/html;
-    index index.html index.htm;
-}
-```
+### 2. Nginx Returns 502 Bad Gateway
 
-then the custom `default.conf` was not mounted at the expected path or was not loaded.
+Possible causes:
 
-Inspect the host file:
-
-```bash
-pwd
-cat nginx/default.conf
-```
-
-Inspect the container mount:
-
-```bash
-docker inspect lab-nginx --format '{{json .Mounts}}'
-```
-
-### Nginx reports `host not found in upstream "lab-api"`
-
-This usually means the Nginx container cannot resolve the API container name.
+- The upstream container is stopped.
+- The upstream hostname cannot be resolved.
+- Containers are not attached to the same Docker network.
+- The application is not listening on the expected internal port.
 
 Check:
 
 ```bash
-docker ps -a
-docker network inspect infra-lab-net
-docker exec lab-nginx getent hosts lab-api
+docker ps
+docker network inspect lab-infra-network
+docker logs lab-nginx
 ```
 
-Make sure both containers are running and connected to the same user-defined network.
+Validate Nginx:
 
-A temporary Nginx container used only for syntax validation is not automatically connected to the application network. Therefore, an upstream DNS resolution error during an isolated `nginx -t` test does not necessarily mean the real Nginx container will have the same problem.
+```bash
+docker exec lab-nginx nginx -t
+```
 
-### API is unreachable from outside the container
+### 3. Nginx Returns 404 Not Found
 
-The Node.js server must listen on all container interfaces:
+Check:
+
+- The requested URI.
+- Nginx `location` configuration.
+- The `proxy_pass` trailing slash.
+- Whether the request reached the Gateway or the frontend container directly.
+
+Inspect active configuration:
+
+```bash
+docker exec lab-nginx nginx -T
+```
+
+### 4. Frontend Cannot Connect to API
+
+The frontend uses:
 
 ```javascript
-server.listen(PORT, "0.0.0.0");
+fetch('/api/health');
 ```
 
-Binding to `localhost` or `127.0.0.1` inside the container makes the service listen only on the container's loopback interface. Other containers and Docker port publishing will not be able to reach it through the container network interface.
+This request uses the browser's current origin.
 
-### API cannot resolve PostgreSQL
-
-An error such as:
+Correct access:
 
 ```text
-getaddrinfo EAI_AGAIN postgres
+http://localhost:8080
 ```
 
-indicates a hostname-resolution problem. Check the configured `DB_HOST`, the actual PostgreSQL container name or network alias, and network membership:
+Incorrect for the intended Gateway architecture:
+
+```text
+http://localhost:8081
+```
+
+When accessing the frontend directly through its own published port, requests are sent to that frontend Nginx rather than the Gateway.
+
+### 5. Database Data Is Missing
+
+Check whether the PostgreSQL volume is mounted:
 
 ```bash
-docker inspect lab-api
 docker inspect lab-postgres
-docker network inspect infra-lab-net
 ```
 
-### Inspect logs
+Inspect the volume:
 
 ```bash
-docker logs --tail 100 lab-api
-docker logs --tail 100 lab-nginx
-docker logs --tail 100 lab-redis
-docker logs --tail 100 lab-postgres
+docker volume inspect lab-postgres-data
 ```
 
-## Next Learning Steps
-
-The lab will progress in the following order:
-
-1. Complete and verify each service using standalone Docker commands.
-2. Review container-to-container networking and Docker DNS.
-3. Explore Docker volumes and database persistence.
-4. Practice container health checks, restart policies, resource limits, and operational inspection.
-5. Review image tagging and registry workflows.
-6. Apply basic container security practices.
-7. Recreate the verified architecture using Docker Compose.
-8. Compare the manual Docker workflow with the Compose-based workflow.
+Do not delete or recreate the volume before confirming where the database data is stored.
 
 ---
 
-## Important Notes
+## Current Project Status
 
-- This is a learning environment, not a production deployment.
-- Do not use example credentials in production.
-- Avoid publishing database and cache ports to the host unless there is a specific operational need.
-- Prefer service names on a user-defined Docker network over fixed container IP addresses.
-- Keep configuration files in version control, but do not commit real passwords, tokens, or other secrets.
-- Before deleting Docker volumes, verify whether they contain data that must be retained.
+| Component | Status |
+|---|---|
+| Docker bridge network | Implemented |
+| Node.js API container | Implemented |
+| Multiple API instances | Implemented |
+| Nginx API load balancing | Implemented |
+| PostgreSQL container | Implemented |
+| Redis container | Implemented |
+| PostgreSQL named volume | Implemented |
+| Redis named volume with AOF | Implemented |
+| PostgreSQL backup and restore | Practiced |
+| React frontend container | Implemented |
+| Nginx frontend routing | Implemented |
+| Single-entry-point Gateway | Implemented and tested |
+| Removal of all direct Host port mappings | Pending final verification |
+| Docker Compose | Planned |
+
+## Roadmap
+
+The project will continue in the following phases:
+
+### Phase 1 — Docker Fundamentals
+
+- Docker images and containers.
+- Docker CLI.
+- Container lifecycle.
+- Port publishing.
+- Docker networking.
+
+### Phase 2 — Application Infrastructure
+
+- Multiple API instances.
+- Nginx reverse proxy.
+- Round Robin load balancing.
+- Frontend containerization.
+- Single-entry-point architecture.
+
+### Phase 3 — Persistence and Recovery
+
+- PostgreSQL named volumes.
+- Redis persistence and AOF.
+- Database backup.
+- Database restore.
+- Volume migration concepts.
+
+### Phase 4 — Docker Compose
+
+- Convert manual Docker commands into `compose.yaml`.
+- Define application services.
+- Configure networks and volumes.
+- Environment variables and `.env`.
+- Service dependencies.
+- Health checks.
+- Compare manual Docker CLI and Compose workflows.
+
+### Phase 5 — Production-Oriented Infrastructure
+
+- Nginx security and rate limiting.
+- Health checks and service recovery.
+- Logging and monitoring.
+- Prometheus and Grafana.
+- Resource limits.
+- Secrets management.
+
+### Phase 6 — Automation and Deployment
+
+- Shell automation scripts.
+- CI/CD pipeline.
+- Automated tests.
+- Image versioning.
+- Deployment and migration workflows.
+
+---
+
+## Learning Objectives
+
+By completing this project, the goal is to understand:
+
+- How Docker containers use host resources.
+- How container networking and internal DNS work.
+- The difference between internal container ports and published host ports.
+- How reverse proxies and load balancers route traffic.
+- How persistent storage works.
+- How to back up and restore databases.
+- How to design a multi-container application.
+- How to transition from manual Docker commands to declarative infrastructure using Docker Compose.
+
+---
+
+**Project:** Docker Infrastructure Lab  
+**Approach:** Hands-on, incremental infrastructure engineering  
+**Primary Goal:** Build a practical understanding of Docker-based application infrastructure.
