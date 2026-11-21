@@ -2,7 +2,7 @@
 
 A hands-on Docker infrastructure project designed to explore containerization, networking, reverse proxying, load balancing, persistent storage, database backup and restore, and multi-container application deployment.
 
-The project is built incrementally using Docker CLI commands before moving to Docker Compose. The goal is to understand how each infrastructure component works independently and how the components communicate with each other.
+The project is built incrementally using Docker CLI commands. The primary goal is to understand how each infrastructure component works independently and how the components communicate with each other.
 
 ---
 
@@ -24,6 +24,7 @@ The project is built incrementally using Docker CLI commands before moving to Do
 - [Troubleshooting](#troubleshooting)
 - [Current Project Status](#current-project-status)
 - [Roadmap](#roadmap)
+- [Learning Objectives](#learning-objectives)
 
 ---
 
@@ -40,9 +41,16 @@ Docker Infrastructure Lab demonstrates a containerized application architecture 
 - Docker named volumes for persistent data.
 - PostgreSQL logical backup and restore procedures.
 
-The project initially uses individual `docker run` commands to understand container lifecycle, networking, port publishing, volumes, and service communication.
+The project initially uses individual `docker run` commands to understand:
 
-Docker Compose will be introduced in a later phase.
+- Container lifecycle.
+- Image management.
+- Port publishing.
+- Docker networking.
+- Internal DNS resolution.
+- Persistent storage.
+- Service communication.
+- Reverse proxying and load balancing.
 
 ## Architecture
 
@@ -55,11 +63,11 @@ Docker Compose will be introduced in a later phase.
                          localhost:8080
                                 |
                                 v
-                      +-------------------+
-                      |   NGINX GATEWAY   |
-                      |   Reverse Proxy   |
-                      |   Load Balancer   |
-                      +-------------------+
+                     +-------------------+
+                     |   NGINX GATEWAY   |
+                     |   Reverse Proxy   |
+                     |   Load Balancer   |
+                     +-------------------+
                                 |
                  +--------------+--------------+
                  |                             |
@@ -70,27 +78,27 @@ Docker Compose will be introduced in a later phase.
         | Frontend Nginx |            | API Upstream    |
         | Static Content |            | Load Balancing  |
         +----------------+            +----------------+
-                                              |
-                             +----------------+----------------+
-                             |                |                |
-                             v                v                v
-                        +---------+      +---------+      +---------+
-                        | API 1   |      | API 2   |      | API 3   |
-                        | :3000   |      | :3000   |      | :3000   |
-                        +---------+      +---------+      +---------+
-                             |                |                |
-                             +----------------+----------------+
-                                              |
-                                   +----------+----------+
-                                   |                     |
-                                   v                     v
-                             +-----------+         +-----------+
-                             | PostgreSQL|         |   Redis   |
-                             |   :5432   |         |   :6379   |
-                             +-----------+         +-----------+
-                                   |                     |
-                                   v                     v
-                             Named Volume          Named Volume
+                                                |
+                               +----------------+----------------+
+                               |                |                |
+                               v                v                v
+                          +---------+      +---------+      +---------+
+                          | API 1   |      | API 2   |      | API 3   |
+                          | :3000   |      | :3000   |      | :3000   |
+                          +---------+      +---------+      +---------+
+                               |                |                |
+                               +----------------+----------------+
+                                                |
+                                     +----------+----------+
+                                     |                     |
+                                     v                     v
+                               +-----------+         +-----------+
+                               | PostgreSQL|         |   Redis   |
+                               |   :5432   |         |   :6379   |
+                               +-----------+         +-----------+
+                                     |                     |
+                                     v                     v
+                               Named Volume          Named Volume
 ```
 
 ### Network Design
@@ -99,21 +107,21 @@ All application services communicate through a dedicated Docker bridge network.
 
 ```text
 Docker Host
-    |
-    +-- lab-infra-network (bridge)
-            |
-            +-- lab-nginx
-            +-- lab-frontend
-            +-- lab-api-1
-            +-- lab-api-2
-            +-- lab-api-3
-            +-- lab-postgres
-            +-- lab-redis
+   |
+   +-- lab-infra-network (bridge)
+           |
+           +-- lab-nginx
+           +-- lab-frontend
+           +-- lab-api-1
+           +-- lab-api-2
+           +-- lab-api-3
+           +-- lab-postgres
+           +-- lab-redis
 ```
 
 ### Single Entry Point
 
-Only the Nginx Gateway should be publicly exposed.
+Only the Nginx Gateway is exposed to the host.
 
 | Service | Internal Port | Host Port |
 |---|---:|---:|
@@ -123,9 +131,15 @@ Only the Nginx Gateway should be publicly exposed.
 | PostgreSQL | 5432 | Not published |
 | Redis | 6379 | Not published |
 
-The internal services remain accessible to other containers through Docker networking.
+Internal services remain accessible to other containers through Docker networking.
 
-> During the initial manual setup, some API ports and the frontend port were published for direct testing. The target architecture uses the single-entry-point model described above.
+The intended architecture exposes only one public entry point:
+
+```text
+http://localhost:8080
+```
+
+This reduces unnecessary external exposure of application and database services.
 
 ## Technology Stack
 
@@ -144,32 +158,67 @@ The internal services remain accessible to other containers through Docker netwo
 
 ## Project Structure
 
-The current project uses a simple structure:
+The project is organized into separate directories for application code, infrastructure configuration, automation scripts, and database backups.
 
 ```text
 docker-infrastructure-lab/
 │
-├── app/                       # Backend application
-│   └── Dockerfile
+├── backend/
+│   └── app/
+│       ├── .dockerignore
+│       ├── Dockerfile
+│       ├── Dockerfile.dev
+│       ├── package.json
+│       ├── package-lock.json
+│       ├── server.js
+│       └── bind-mount-demo.txt
 │
-├── frontend/                  # React + Vite application
+├── frontend/
+│   ├── public/
 │   ├── src/
 │   │   ├── App.jsx
-│   │   └── App.css
+│   │   ├── App.css
+│   │   └── ...
+│   ├── Dockerfile
 │   ├── package.json
-│   └── Dockerfile
+│   └── package-lock.json
 │
-├── nginx/
-│   ├── default.conf           # Gateway configuration
-│   └── default.conf.bak       # Previous configuration backup
+├── infrastructure/
+│   └── nginx/
+│       ├── default.conf
+│       └── default.conf.bak
 │
-├── backups/                   # Database backup files
+├── postgres/
+│   └── init.sql
 │
-├── README.md
-└── .gitignore
+├── scripts/
+│   └── env.sh
+│
+├── backups/
+│   └── .gitkeep
+│
+├── docs/
+│
+├── .env.example
+├── .gitignore
+├── .prettierignore
+├── .prettierrc.json
+└── README.md
 ```
 
-Additional infrastructure directories and automation scripts can be introduced as the project grows.
+### Directory Responsibilities
+
+| Directory | Responsibility |
+|---|---|
+| `backend/app/` | Node.js API application and Dockerfiles |
+| `frontend/` | React frontend application |
+| `infrastructure/nginx/` | Nginx Gateway configuration |
+| `postgres/` | PostgreSQL initialization scripts |
+| `scripts/` | Docker automation scripts |
+| `backups/` | Local database backup files |
+| `docs/` | Project documentation and technical notes |
+
+Database backup files are excluded from Git to avoid committing potentially sensitive data or large binary files.
 
 ## Prerequisites
 
@@ -177,7 +226,7 @@ Install the following tools:
 
 - Docker Engine
 - Docker CLI
-- Node.js and npm (for local frontend/backend development)
+- Node.js and npm (for local application development)
 - Git
 - curl
 
@@ -185,7 +234,6 @@ Verify the installations:
 
 ```bash
 docker --version
-docker compose version
 node --version
 npm --version
 git --version
@@ -193,7 +241,7 @@ git --version
 
 ## Docker Network
 
-Create the application network:
+### Create the Application Network
 
 ```bash
 docker network create \
@@ -226,6 +274,30 @@ lab-frontend:80
 
 Container names are used for internal DNS resolution instead of hardcoding container IP addresses.
 
+### Network Communication
+
+Services communicate using their internal container ports.
+
+For example:
+
+```text
+API -> PostgreSQL
+lab-postgres:5432
+
+API -> Redis
+lab-redis:6379
+
+Nginx -> Frontend
+lab-frontend:80
+
+Nginx -> API
+lab-api-1:3000
+lab-api-2:3000
+lab-api-3:3000
+```
+
+Internal communication does not require publishing these ports to the Docker host.
+
 ## Services
 
 ### 1. Frontend
@@ -234,7 +306,7 @@ The frontend is a React application built with Vite.
 
 The production build is served by Nginx.
 
-Dockerfile:
+#### Dockerfile
 
 ```dockerfile
 # Build stage
@@ -260,7 +332,7 @@ EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-Build the frontend image:
+#### Build the Frontend Image
 
 ```bash
 docker build \
@@ -268,7 +340,7 @@ docker build \
   ./frontend
 ```
 
-Run the frontend internally:
+#### Run the Frontend Internally
 
 ```bash
 docker run -d \
@@ -284,6 +356,8 @@ The frontend is accessed through the Gateway:
 http://localhost:8080
 ```
 
+The frontend container does not need a published host port.
+
 ### 2. Backend API
 
 The backend is a Node.js application running on port `3000` inside each container.
@@ -298,7 +372,9 @@ Three API instances are used to demonstrate load balancing.
 
 The API instances connect to PostgreSQL and Redis through the internal Docker network.
 
-Example environment variables:
+#### Environment Variables
+
+Example configuration:
 
 ```env
 PORT=3000
@@ -314,7 +390,7 @@ REDIS_HOST=lab-redis
 
 These credentials are for local lab use only. Do not use them in production.
 
-Example API endpoints:
+#### API Endpoints
 
 | Endpoint | Description |
 |---|---|
@@ -323,13 +399,19 @@ Example API endpoints:
 | `/db` | Database connectivity |
 | `/cache` | Redis connectivity |
 
-Build the API image (adjust the build context if the backend Dockerfile is in another directory):
+#### Build the API Image
+
+The backend Dockerfile is located inside `backend/app/`.
+
+The correct build context is:
 
 ```bash
 docker build \
   -t api-infrastructure:v1 \
-  ./app
+  ./backend/app
 ```
+
+The build context must contain the files referenced by the Dockerfile, including `package.json`, `package-lock.json`, and `server.js`.
 
 ### 3. Nginx Gateway
 
@@ -337,7 +419,7 @@ Nginx is the single entry point for external HTTP traffic.
 
 Responsibilities:
 
-- Serve requests through the frontend container.
+- Serve frontend requests through the frontend container.
 - Route API requests to the API upstream.
 - Distribute API traffic across multiple instances.
 - Forward client and request headers.
@@ -355,11 +437,11 @@ Database configuration:
 
 | Setting | Value |
 |---|---|
-| Database | db_test |
-| Username | db_user |
-| Internal Port | 5432 |
-| Container | lab-postgres |
-| Volume | lab-postgres-data |
+| Database | `db_test` |
+| Username | `db_user` |
+| Internal Port | `5432` |
+| Container | `lab-postgres` |
+| Volume | `lab-postgres-data` |
 
 The database data directory is persisted through a named Docker volume.
 
@@ -397,13 +479,13 @@ AOF helps Redis recover data after a restart, but it is not a substitute for an 
 
 ### Nginx Configuration
 
-File:
+Configuration file:
 
 ```text
-nginx/default.conf
+infrastructure/nginx/default.conf
 ```
 
-Configuration:
+#### Configuration
 
 ```nginx
 # API Load Balancer
@@ -489,6 +571,20 @@ http://localhost:8080/api/health
 Nginx then routes the request internally to the API cluster.
 
 This approach avoids requiring a separate frontend API origin and simplifies CORS configuration.
+
+### Load Balancing Strategy
+
+Nginx uses Round Robin load balancing by default when multiple upstream servers are defined without an explicit balancing directive.
+
+In this project, requests are distributed across:
+
+```text
+lab-api-1:3000
+lab-api-2:3000
+lab-api-3:3000
+```
+
+This allows multiple API instances to serve incoming requests.
 
 ### Validate and Reload Nginx
 
@@ -603,6 +699,8 @@ ls -lh backups/
 file backups/db_test_backup.dump
 ```
 
+The backup file is written to the Docker host, not inside the PostgreSQL container.
+
 ### Create a Restore Database
 
 ```bash
@@ -649,7 +747,7 @@ Exit:
 
 - Keep backup files outside the database container.
 - Do not commit database credentials or sensitive backups to Git.
-- Store production backups outside the Docker host.
+- Store important backups outside the Docker host.
 - Periodically test restore procedures.
 - Consider encryption and retention policies for important data.
 
@@ -773,8 +871,6 @@ Inspect a volume:
 docker volume inspect lab-postgres-data
 ```
 
----
-
 ## Troubleshooting
 
 ### 1. Port Already Allocated
@@ -848,13 +944,9 @@ Correct access:
 http://localhost:8080
 ```
 
-Incorrect for the intended Gateway architecture:
+Direct frontend access through a separately published port is not part of the intended single-entry-point architecture.
 
-```text
-http://localhost:8081
-```
-
-When accessing the frontend directly through its own published port, requests are sent to that frontend Nginx rather than the Gateway.
+When accessing the application through the Gateway, API requests are routed through Nginx.
 
 ### 5. Database Data Is Missing
 
@@ -872,7 +964,21 @@ docker volume inspect lab-postgres-data
 
 Do not delete or recreate the volume before confirming where the database data is stored.
 
----
+### 6. Container Cannot Resolve Another Container
+
+Check whether both containers belong to the same Docker network:
+
+```bash
+docker network inspect lab-infra-network
+```
+
+Verify container names:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Networks}}"
+```
+
+Use container names for internal DNS resolution rather than relying on container IP addresses.
 
 ## Current Project Status
 
@@ -889,13 +995,14 @@ Do not delete or recreate the volume before confirming where the database data i
 | PostgreSQL backup and restore | Practiced |
 | React frontend container | Implemented |
 | Nginx frontend routing | Implemented |
-| Single-entry-point Gateway | Implemented and tested |
-| Removal of all direct Host port mappings | Pending final verification |
-| Docker Compose | Planned |
+| Single-entry-point Gateway | Implemented |
+| Direct Host port mappings removed from internal services | Implemented |
+| Project directory reorganization | In progress |
+| Documentation synchronization | In progress |
 
 ## Roadmap
 
-The project will continue in the following phases:
+The project will continue in the following phases.
 
 ### Phase 1 — Docker Fundamentals
 
@@ -921,15 +1028,15 @@ The project will continue in the following phases:
 - Database restore.
 - Volume migration concepts.
 
-### Phase 4 — Docker Compose
+### Phase 4 — Declarative Infrastructure
 
-- Convert manual Docker commands into `compose.yaml`.
+- Introduce declarative multi-container configuration.
 - Define application services.
 - Configure networks and volumes.
-- Environment variables and `.env`.
+- Environment variables and configuration management.
 - Service dependencies.
 - Health checks.
-- Compare manual Docker CLI and Compose workflows.
+- Compare imperative Docker CLI and declarative workflows.
 
 ### Phase 5 — Production-Oriented Infrastructure
 
@@ -948,8 +1055,6 @@ The project will continue in the following phases:
 - Image versioning.
 - Deployment and migration workflows.
 
----
-
 ## Learning Objectives
 
 By completing this project, the goal is to understand:
@@ -961,10 +1066,13 @@ By completing this project, the goal is to understand:
 - How persistent storage works.
 - How to back up and restore databases.
 - How to design a multi-container application.
-- How to transition from manual Docker commands to declarative infrastructure using Docker Compose.
+- How to organize infrastructure configuration and automation scripts.
+- How to transition from manual Docker commands to declarative infrastructure.
 
 ---
 
-**Project:** Docker Infrastructure Lab  
-**Approach:** Hands-on, incremental infrastructure engineering  
+**Project:** Docker Infrastructure Lab
+
+**Approach:** Hands-on, incremental infrastructure engineering
+
 **Primary Goal:** Build a practical understanding of Docker-based application infrastructure.
